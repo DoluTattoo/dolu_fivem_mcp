@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MCP validation fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: transparent;
+      }
+      body {
+        display: none;
+        font: 18px sans-serif;
+        color: #111;
+      }
+      main {
+        margin: 60px;
+        padding: 24px;
+        width: 420px;
+        background: #fff;
+        border: 4px solid #8020ff;
+      }
+      label {
+        display: block;
+        margin: 12px 0;
+      }
+      input,
+      select,
+      button {
+        font: inherit;
+      }
+      #scroll {
+        height: 80px;
+        overflow: auto;
+        border: 1px solid #555;
+      }
+      #scroll div {
+        height: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <main aria-label="MCP disposable fixture">
+      <h1>MCP test fixture</h1>
+      <label>Name <input id="name" aria-label="Name" /></label>
+      <label
+        >Mode
+        <select id="mode" aria-label="Mode">
+          <option value="a">Alpha</option>
+          <option value="b">Beta</option>
+        </select></label
+      >
+      <label><input id="enabled" type="checkbox" /> Enabled</label>
+      <button id="increment">Increment</button>
+      <button id="disabled" disabled>Disabled</button>
+      <output id="count" aria-live="polite">0</output>
+      <div id="scroll" tabindex="0">
+        <div>Scroll start</div>
+        Scroll end
+      </div>
+      <iframe
+        title="Nested fixture"
+        srcdoc="<button id='nested' onclick='this.textContent=&quot;Clicked&quot;'>Nested button</button>"
+      ></iframe>
+    </main>
+    <script>
+      let count = 0;
+      document.getElementById("increment").addEventListener("click", () => {
+        document.getElementById("count").textContent = String(++count);
+        console.info("fixture increment", count);
+      });
+      window.fixture = {
+        async focus(enabled) {
+          const response = await fetch(
+            `https://${GetParentResourceName()}/fixture_focus`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled }),
+            },
+          );
+          if (!response.ok)
+            throw new Error(`Fixture focus HTTP ${response.status}`);
+          const result = await response.json();
+          if (!result.ok) throw new Error(result.error);
+          return result;
+        },
+        show() {
+          document.body.style.display = "block";
+        },
+        hide() {
+          document.body.style.display = "none";
+        },
+        reset() {
+          count = 0;
+          document.getElementById("count").textContent = "0";
+          document.getElementById("name").value = "";
+          document.getElementById("mode").value = "a";
+          document.getElementById("enabled").checked = false;
+          document.getElementById("scroll").scrollTop = 0;
+        },
+        async ping() {
+          const response = await fetch(
+            `https://${GetParentResourceName()}/fixture_ping`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            },
+          );
+          if (!response.ok)
+            throw new Error(`Fixture ping HTTP ${response.status}`);
+          return response.json();
+        },
+      };
+    </script>
+  </body>
+</html>

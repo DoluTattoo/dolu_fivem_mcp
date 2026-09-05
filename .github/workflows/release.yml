@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to publish or verify
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Check tag version
+        run: node -e "const v=require('./package.json').version; if(process.env.RELEASE_TAG!=='v'+v) throw Error('Tag must match package.json version');"
+      - run: npm ci
+      - run: npm run check
+      - name: Package runtime
+        id: package
+        shell: bash
+        run: |
+          npm pack --json > "$RUNNER_TEMP/package.json"
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/package.json','utf8'))[0];fs.appendFileSync(process.env.GITHUB_OUTPUT,'archive='+p.filename+'\n');"
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
+        shell: bash
+        run: |
+          tags="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[].tag_name')"
+          if grep -Fxq -- "$RELEASE_TAG" <<< "$tags"; then
+            assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+            if grep -Fxq -- "$ARCHIVE" <<< "$assets"; then
+              echo "Release $RELEASE_TAG already contains $ARCHIVE; keeping the published archive and notes."
+            else
+              gh release upload "$RELEASE_TAG" "$ARCHIVE"
+            fi
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE" --verify-tag --title "$RELEASE_TAG" --generate-notes
+          fi

@@ -1,0 +1,63 @@
+{
+  "name": "dolu_fivem_mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local FiveM development MCP resource",
+  "author": "Dolu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DoluTattoo/dolu_fivem_mcp.git"
+  },
+  "homepage": "https://github.com/DoluTattoo/dolu_fivem_mcp#readme",
+  "bugs": {
+    "url": "https://github.com/DoluTattoo/dolu_fivem_mcp/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    ".yarn.installed",
+    "dist",
+    "lua",
+    "web",
+    "fxmanifest.lua",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.txt",
+    "config.example.cfg"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.server.json && tsc -p tsconfig.client.json && tsc -p tsconfig.nui.json && tsc -p tsconfig.tests.json",
+    "test": "vitest run",
+    "test:live": "node scripts/live-check.mjs",
+    "test:soak": "node scripts/live-check.mjs --soak 20",
+    "package:resource": "npm run check && npm pack",
+    "lint": "eslint src tests",
+    "format": "prettier --write src tests scripts *.json *.mjs",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "ws": "^8.18.3",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@citizenfx/client": "2.0.35805-1",
+    "@citizenfx/server": "2.0.35805-1",
+    "@eslint/js": "^9.39.0",
+    "@types/node": "^22.19.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.12",
+    "eslint": "^9.39.0",
+    "prettier": "^3.7.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^3.2.4",
+    "wasmoon": "^1.16.0"
+  }
+}

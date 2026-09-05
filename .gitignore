@@ -1,0 +1,9 @@
+node_modules/
+/dist/
+.yarn.installed
+coverage/
+*.log
+.env
+.env.*
+config.local.cfg
+*.tgz
