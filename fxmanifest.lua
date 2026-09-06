@@ -4,7 +4,7 @@ node_version '22'
 
 author 'Dolu'
 description 'Local development MCP: JavaScript, Lua and NUI'
-version '0.1.0'
+version '0.1.1'
 
 server_scripts {
     'lua/executor.lua',

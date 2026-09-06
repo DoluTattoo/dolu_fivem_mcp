@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { createContext, runInContext, type Context } from "node:vm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { events } from "../src/shared/protocol";
+import { events, VERSION } from "../src/shared/protocol";
 
 describe("bundled client in a Node-free FiveM-like V8 context", () => {
   let bundle: string;
@@ -123,7 +123,7 @@ describe("bundled client in a Node-free FiveM-like V8 context", () => {
     handlers.get("__cfx_nui:mcp_ready")?.({ buildId: "development" }, cb);
     expect(cb).toHaveBeenLastCalledWith({ ok: true, buildId: "development" });
     expect(network).toHaveBeenLastCalledWith(names.hello, {
-      version: "0.1.0",
+      version: VERSION,
       buildId: "development",
       nuiBuildId: "development",
       nuiReady: true,

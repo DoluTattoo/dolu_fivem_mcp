@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { diagnose } from "../src/server/diagnostics";
 import type { GameService } from "../src/server/game";
 import { runInNewContext } from "node:vm";
+import { VERSION } from "../src/shared/protocol";
 
 function fixture() {
   const player = {
@@ -14,7 +15,7 @@ function fixture() {
     serverBuildId: "development",
     clientBuildId: "development",
     nuiBuildId: "development",
-    bridgeVersion: "0.1.0",
+    bridgeVersion: VERSION,
     nuiReady: true,
     nuiReadinessReason: null,
   };
@@ -44,7 +45,7 @@ function fixture() {
     runtimeInfo: vi.fn().mockResolvedValue({
       resource: "dolu_fivem_mcp",
       resourceState: "started",
-      version: "0.1.0",
+      version: VERSION,
       buildId: "development",
       artifact: "test",
       node: "v22",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameService } from "../src/server/game";
-import { events, type ExecutionInput } from "../src/shared/protocol";
+import { events, VERSION, type ExecutionInput } from "../src/shared/protocol";
 import { BUILD_ID } from "../src/shared/build";
 
 describe("FiveM routing and ACE boundaries", () => {
@@ -75,7 +75,7 @@ describe("FiveM routing and ACE boundaries", () => {
   }
   function hello(id: number) {
     from(id, names.hello, {
-      version: "0.1.0",
+      version: VERSION,
       buildId: BUILD_ID,
       nuiBuildId: BUILD_ID,
       nuiReady: true,
@@ -199,7 +199,7 @@ describe("FiveM routing and ACE boundaries", () => {
       nuiReady: false,
     });
     from(7, names.hello, {
-      version: "0.1.0",
+      version: VERSION,
       buildId: "stale",
       nuiBuildId: BUILD_ID,
       nuiReady: true,
@@ -211,7 +211,7 @@ describe("FiveM routing and ACE boundaries", () => {
     });
     await expect(game.execute("client", input, 7)).rejects.toThrow("build");
     from(7, names.hello, {
-      version: "0.1.0",
+      version: VERSION,
       buildId: BUILD_ID,
       nuiBuildId: "stale",
       nuiReady: true,
@@ -233,7 +233,7 @@ describe("FiveM routing and ACE boundaries", () => {
     hello(7);
     const job = await game.execute("client", input, 7);
     from(7, names.hello, {
-      version: "0.1.0",
+      version: VERSION,
       buildId: "older",
       nuiBuildId: null,
       nuiReady: false,

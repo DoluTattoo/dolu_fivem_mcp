@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile, stat, utimes } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { createContext, runInContext } from "node:vm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const bundler = vi.hoisted(() => vi.fn());
@@ -114,6 +115,33 @@ describe("deterministic shared build identity", () => {
     expect(await readFile(join(root, "src/server/index.ts"), "utf8")).toBe(
       "fixture src/server/index.ts",
     );
+  });
+  it("does not overwrite the host codec when loading the server bundle", async () => {
+    await buildAll(root);
+    const [options] = bundler.mock.calls.find(
+      ([target]) => target.platform === "node",
+    )!;
+    const { build } = await vi.importActual<typeof import("esbuild")>(
+      "esbuild",
+    );
+    const output = await build({
+      ...options,
+      absWorkingDir: process.cwd(),
+    });
+    const codec = { encode: () => "encoded", decode: () => "decoded" };
+    const stopLoading = new Error("Stop before loading Node dependencies");
+    const context = createContext({
+      codec,
+      require: () => {
+        throw stopLoading;
+      },
+    });
+    expect(() => runInContext(output.outputFiles![0]!.text, context)).toThrow(
+      stopLoading,
+    );
+    expect(context.codec).toBe(codec);
+    expect(context.codec.encode()).toBe("encoded");
+    expect(context.codec.decode()).toBe("decoded");
   });
   it("marks bundled dependencies as installed, including future package timestamps", async () => {
     const future = new Date(Date.now() + 120_000);

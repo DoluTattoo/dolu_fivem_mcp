@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 export const MAX_CODE = 65_536;
 export const MAX_RESULT = 131_072;
 export const MAX_LOGS = 100;

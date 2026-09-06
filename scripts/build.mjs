@@ -60,6 +60,8 @@ export async function buildAll(root = process.cwd()) {
       outfile: "dist/server.js",
       platform: "node",
       format: "cjs",
+      banner: { js: "(() => {" },
+      footer: { js: "})();" },
       target: "node22",
       external: ["bufferutil", "utf-8-validate"],
     },
