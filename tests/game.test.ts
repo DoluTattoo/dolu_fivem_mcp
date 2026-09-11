@@ -1,7 +1,10 @@
+import { networkInterfaces } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameService } from "../src/server/game";
 import { events, VERSION, type ExecutionInput } from "../src/shared/protocol";
 import { BUILD_ID } from "../src/shared/build";
+
+vi.mock("node:os", () => ({ networkInterfaces: vi.fn(() => ({})) }));
 
 describe("FiveM routing and ACE boundaries", () => {
   let game: GameService;
@@ -17,6 +20,7 @@ describe("FiveM routing and ACE boundaries", () => {
     wait: false,
   };
   beforeEach(() => {
+    vi.mocked(networkInterfaces).mockReturnValue({});
     handlers = new Map();
     authorized = new Set([7, 8]);
     network.mockClear();
@@ -183,6 +187,34 @@ describe("FiveM routing and ACE boundaries", () => {
     vi.stubGlobal("GetPlayerEndpoint", () => "10.0.0.12");
     await expect(game.assertLocalNui(7)).rejects.toThrow("loopback");
   });
+  it.each(["192.168.1.59", "::ffff:192.168.1.59"])(
+    "accepts the server's own interface %s but not another LAN client",
+    async (endpoint) => {
+      vi.mocked(networkInterfaces).mockReturnValue({
+        Ethernet: [
+          {
+            address: "192.168.1.59",
+            netmask: "255.255.255.0",
+            family: "IPv4",
+            mac: "00:00:00:00:00:00",
+            internal: false,
+            cidr: "192.168.1.59/24",
+          },
+        ],
+      });
+      hello(7);
+      vi.stubGlobal("GetPlayerEndpoint", () => endpoint);
+      expect(await game.assertLocalNui(7)).toBe(7);
+      vi.stubGlobal("GetPlayerEndpoint", () => "192.168.1.60");
+      await expect(game.assertLocalNui(7)).rejects.toThrow("local client");
+      vi.stubGlobal("GetPlayerEndpoint", () => endpoint);
+      hello(8);
+      await expect(game.assertLocalNui(7)).rejects.toThrow("Ambiguous");
+      game.config.cdpPlayer = 7;
+      expect(await game.assertLocalNui(7)).toBe(7);
+      await expect(game.assertLocalNui(8)).rejects.toThrow("configured");
+    },
+  );
   it("disconnects pending jobs when the player leaves", async () => {
     hello(7);
     const job = await game.execute("client", input, 7);
@@ -386,7 +418,10 @@ describe("FiveM routing and ACE boundaries", () => {
     const job = await game.execute("server", input);
     const log = { level: "info", message: "early" };
     handlers.get(names.luaLog)?.(JSON.stringify({ id: job.id, seq: 1, log }));
-    handlers.get("console")?.("script:dolu_fivem_mcp", `[dolu_fivem_mcp][${job.id}] early`);
+    handlers.get("console")?.(
+      "script:dolu_fivem_mcp",
+      `[dolu_fivem_mcp][${job.id}] early`,
+    );
     handlers.get("console")?.("other", `Execution mentioned [${job.id}]`);
     handlers.get(names.luaResult)?.(
       job.id,

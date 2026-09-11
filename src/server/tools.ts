@@ -390,7 +390,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
   };
   tool(
     "list_nui_frames",
-    "Discover debuggable NUI frames through CEF on the FXServer machine. Requires a loopback-connected authorized client. No access to remote players' browsers.",
+    "Discover debuggable NUI frames through CEF on the FXServer machine. Requires an authorized client connected through loopback or a server-owned interface address. No access to remote players' browsers.",
     {
       playerId: player,
     },

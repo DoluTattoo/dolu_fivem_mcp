@@ -249,7 +249,7 @@ After changing configuration or rebuilding, run `restart dolu_fivem_mcp` **from 
 | Cannot connect to MCP | Resource started, correct port, assistant using the same loopback interface |
 | Player is not authorized | The player's actual ACE principals, not just their framework or txAdmin role |
 | Client is not ready / build mismatch | `status` and `diagnose`; restart the resource so server, client and NUI load matching builds |
-| NUI or screenshots are unavailable | Local client connection and CEF DevTools access; `nuiReady` alone does not prove CDP works |
+| NUI or screenshots are unavailable | Client must run on the FXServer machine and connect through loopback or one of that machine's own interface addresses; CEF DevTools must be accessible. `nuiReady` alone does not prove CDP works |
 | Multiple players or frames match | Specify `playerId` / `frameId`; configure `dolu_fivem_mcp_cdp_player` for ambiguous local CEF ownership |
 | Screenshot is black | Game rendering may be paused, minimized or genuinely black |
 

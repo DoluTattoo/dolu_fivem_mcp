@@ -1,3 +1,4 @@
+import { networkInterfaces } from "node:os";
 import { z } from "zod";
 import { JavascriptExecutor } from "../shared/executor";
 import { BUILD_ID } from "../shared/build";
@@ -366,13 +367,23 @@ export class GameService {
         throw new Error(
           "Requested player is not the configured local CEF client",
         );
-      if (!loopback.has(GetPlayerEndpoint(String(selected)))) {
+      const localAddresses = new Set(loopback);
+      for (const addresses of Object.values(networkInterfaces())) {
+        for (const address of addresses ?? []) {
+          localAddresses.add(address.address.toLowerCase());
+          if (address.family === "IPv4")
+            localAddresses.add(`::ffff:${address.address}`);
+        }
+      }
+      if (
+        !localAddresses.has(GetPlayerEndpoint(String(selected)).toLowerCase())
+      ) {
         throw new Error(
-          "NUI DevTools runs on the FXServer machine. Only a loopback-connected local client is supported.",
+          "NUI DevTools runs on the FXServer machine. Only a local client connected through loopback or a server-owned interface address is supported.",
         );
       }
       const local = [...this.clients.keys()].filter((id) =>
-        loopback.has(GetPlayerEndpoint(String(id))),
+        localAddresses.has(GetPlayerEndpoint(String(id)).toLowerCase()),
       );
       if (!this.config.cdpPlayer && local.length !== 1) {
         throw new Error(
