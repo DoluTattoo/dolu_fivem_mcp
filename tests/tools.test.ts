@@ -184,6 +184,80 @@ describe("complete MCP tool surface", () => {
     ).toMatchObject({ result: { isError: true } });
     expect(nui.snapshot).not.toHaveBeenCalled();
   });
+  it("returns concise tool errors with retrievable bounded audit details", async () => {
+    const failure = new Error("CEF unavailable");
+    failure.stack = "Error: CEF unavailable\n" + "stack details ".repeat(500);
+    vi.spyOn(game, "assertLocalNui").mockRejectedValue(failure);
+    for (const name of ["nui_snapshot", "game_screenshot", "nui_screenshot"]) {
+      const response = await rpc("tools/call", {
+        name,
+        arguments: { resource: "example" },
+      });
+      const error = response.result.structuredContent.result;
+      expect(response.result.isError).toBe(true);
+      expect(error).toMatchObject({
+        error: "CEF unavailable",
+        code: "TOOL_FAILED",
+      });
+      expect(JSON.stringify(error)).not.toContain("stack details");
+      const details = await rpc("tools/call", {
+        name: error.details.tool,
+        arguments: error.details.arguments,
+      });
+      expect(
+        details.result.structuredContent.result.lines
+          .map((entry: { message: string }) => entry.message)
+          .join("\n"),
+      ).toContain("stack details");
+      expect(details.result.structuredContent.result.lines).toHaveLength(3);
+    }
+  });
+  it("compacts healthy status but keeps all unhealthy readiness details", async () => {
+    const healthy = {
+      playerId: 1,
+      name: "Local",
+      authorized: true,
+      ready: true,
+      readinessReasons: [],
+      nuiReady: true,
+      nuiReadinessReason: null,
+      lastSeen: "2026-09-11T00:00:00Z",
+      serverBuildId: "a".repeat(64),
+      clientBuildId: "a".repeat(64),
+      nuiBuildId: "a".repeat(64),
+      bridgeVersion: "0.1.1",
+    };
+    const unhealthy = {
+      ...healthy,
+      playerId: 2,
+      ready: false,
+      readinessReasons: ["build_mismatch"],
+    };
+    vi.spyOn(game, "players").mockResolvedValue([healthy, unhealthy]);
+    const full = await rpc("tools/call", { name: "status", arguments: {} });
+    const small = await rpc("tools/call", {
+      name: "status",
+      arguments: { compact: true },
+    });
+    expect(full.result.structuredContent.result.players).toEqual([
+      healthy,
+      unhealthy,
+    ]);
+    expect(small.result.structuredContent.result.players[0]).toEqual({
+      playerId: 1,
+      name: "Local",
+      authorized: true,
+      ready: true,
+      nuiReady: true,
+    });
+    expect(small.result.structuredContent.result.players[1]).toEqual(unhealthy);
+    expect(small.result.structuredContent.result.buildId).toBe(
+      full.result.structuredContent.result.buildId,
+    );
+    expect(JSON.stringify(small).length).toBeLessThan(
+      JSON.stringify(full).length,
+    );
+  });
   it("executes JS end-to-end through HTTP and exposes structured output", async () => {
     const response = await rpc("tools/call", {
       name: "execute_server",

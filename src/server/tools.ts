@@ -1,5 +1,6 @@
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   VERSION,
@@ -119,12 +120,42 @@ export function createTools(
   const server = new McpServer(
     { name: "dolu_fivem_mcp", version: VERSION },
     {
-      instructions: `Local FiveM development resource. Call status once to establish readiness and select the player; reuse it until a restart, disconnect or readiness error. status already includes players: do not also call list_players unless refreshing them.
+      instructions: `Local FiveM development resource. Call status with compact=true once to establish readiness and select the player; reuse it until a restart, disconnect or readiness error. status already includes players: do not also call list_players unless refreshing them.
     Discover resources only when needed: use inspect_resource for a known resource or list_resources with name/state filters. Screenshots and snippets do not require a full resource listing. Call the intended tool directly once its target is known; use diagnose for failures, not routine preflight.
 Client/server JavaScript and Lua execution are supported; NUI uses JavaScript through local CEF DevTools.
 No filesystem editing tools: use your editor. ${CONTRACT}`,
     },
   );
+  function toolFailure(name: string, error: unknown): CallToolResult {
+    const errorId = randomUUID();
+    const details = errorMessage(error);
+    for (let offset = 0; offset < details.length; offset += 3000) {
+      game.audit(
+        `tool ${name} errorId=${errorId} part=${offset / 3000 + 1}: ${details.slice(offset, offset + 3000)}`,
+        true,
+      );
+    }
+    return result(
+      {
+        error: (error instanceof Error ? error.message : String(error)).slice(
+          0,
+          1024,
+        ),
+        code:
+          error instanceof z.ZodError
+            ? "INVALID_ARGUMENTS"
+            : error instanceof Error && error.name === "AbortError"
+              ? "CANCELLED"
+              : "TOOL_FAILED",
+        errorId,
+        details: {
+          tool: "read_logs",
+          arguments: { source: "audit", contains: errorId, limit: 3 },
+        },
+      },
+      true,
+    );
+  }
   function tool<S extends z.ZodRawShape>(
     name: string,
     description: string,
@@ -148,9 +179,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
         if (!readonly) game.audit(`tool ${name} ${Date.now() - start}ms`);
         return result(value, failedJob(value));
       } catch (error) {
-        const message = errorMessage(error);
-        game.audit(`tool ${name} failed: ${message}`, true);
-        return result({ error: message }, true);
+        return toolFailure(name, error);
       }
     };
     invokers.set(name, invoke);
@@ -188,26 +217,45 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
 
   tool(
     "status",
-    "MCP readiness, authorized players, console capture and local NUI debugging configuration.",
-    {},
+    "MCP readiness and players. Prefer compact=true for routine selection; full output retains all build and heartbeat details for diagnosis.",
+    { compact: z.boolean().default(false) },
     true,
-    async () => ({
-      version: VERSION,
-      buildId: game.buildId,
-      resource: game.resource,
-      players: await game.players(),
-      serverConsole: game.consoleAvailable,
-      clientLogs: "Only captured snippet logs, not the global F8 console.",
-      nui: {
-        port: game.config.cdpPort,
-        configuredPlayer: game.config.cdpPlayer || null,
-        mode: "local CEF; call list_nui_frames to connect",
-      },
-      executions: game.jobs.list().filter((job) => job.state === "running")
-        .length,
-      transport:
-        "Stateless Streamable HTTP; explicit cancel_execution for jobs.",
-    }),
+    async ({ compact }) => {
+      const players = await game.players();
+      return {
+        version: VERSION,
+        buildId: game.buildId,
+        resource: game.resource,
+        players: compact
+          ? players.map((entry) => {
+              if (!entry.ready || !entry.nuiReady) return entry;
+              return {
+                playerId: entry.playerId,
+                name: entry.name,
+                authorized: entry.authorized,
+                ready: entry.ready,
+                nuiReady: entry.nuiReady,
+              };
+            })
+          : players,
+        serverConsole: game.consoleAvailable,
+        clientLogs: compact
+          ? undefined
+          : "Only captured snippet logs, not the global F8 console.",
+        nui: {
+          port: game.config.cdpPort,
+          configuredPlayer: game.config.cdpPlayer || null,
+          mode: compact
+            ? undefined
+            : "local CEF; call list_nui_frames to connect",
+        },
+        executions: game.jobs.list().filter((job) => job.state === "running")
+          .length,
+        transport: compact
+          ? undefined
+          : "Stateless Streamable HTTP; explicit cancel_execution for jobs.",
+      };
+    },
   );
   tool(
     "list_players",
@@ -603,9 +651,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
           ],
         };
       } catch (error) {
-        const message = errorMessage(error);
-        game.audit(`tool game_screenshot failed: ${message}`, true);
-        return result({ error: message }, true);
+        return toolFailure("game_screenshot", error);
       }
     },
   );
@@ -620,8 +666,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
         game.audit(`tool nui_screenshot resource=${resource}`);
         return { content: [{ type: "image", data, mimeType: "image/png" }] };
       } catch (error) {
-        game.audit(`tool nui_screenshot failed: ${errorMessage(error)}`, true);
-        return result({ error: errorMessage(error) }, true);
+        return toolFailure("nui_screenshot", error);
       }
     },
   );
@@ -703,7 +748,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
       try {
         return scenarios.getEvidence(id);
       } catch (error) {
-        return result({ error: errorMessage(error) }, true);
+        return toolFailure("get_evidence", error);
       }
     },
   );

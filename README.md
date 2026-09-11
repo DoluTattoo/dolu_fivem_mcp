@@ -236,6 +236,10 @@ The MCP resource `fivem://dolu_fivem_mcp/execution-guide` provides execution gui
 
 **Targeted NUI snapshots:** `nui_snapshot` accepts `selector` (exactly one subtree), `maxElements` (1-150, default 150), and `includeText` (default true). Use `includeText: false` when accessible labels suffice; element names and interactive refs remain available. Missing or ambiguous selectors fail explicitly. `truncated` indicates an incomplete scan. Defaults retain the document-wide snapshot and private input values remain excluded.
 
+**Compact readiness:** Use `status` with `compact: true` to omit repeated build hashes and static guidance for healthy players. The server build ID and complete details for unhealthy clients remain present. Omit `compact` for the original full response.
+
+**Tool errors:** Handler failures return a short `error`, a stable category `code`, an `errorId`, and a `details` tool call to retrieve the bounded stack from audit logs. Audit history is bounded and lost on restart; retrieve it promptly when needed. SDK input-validation errors retain the SDK format. Errors from executed snippets retain their original stack in `outcome.error`. An error never implies that a mutation can safely be retried.
+
 </details>
 
 ## Configuration and troubleshooting
