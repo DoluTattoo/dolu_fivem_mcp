@@ -240,6 +240,8 @@ The MCP resource `fivem://dolu_fivem_mcp/execution-guide` provides execution gui
 
 **Tool errors:** Handler failures return a short `error`, a stable category `code`, an `errorId`, and a `details` tool call to retrieve the bounded stack from audit logs. Audit history is bounded and lost on restart; retrieve it promptly when needed. SDK input-validation errors retain the SDK format. Errors from executed snippets retain their original stack in `outcome.error`. An error never implies that a mutation can safely be retried.
 
+**NUI connection reuse:** Successful short CDP operations may retain up to four idle sockets for two seconds. Connections are leased exclusively with a fresh operation deadline; failed or aborted connections are closed, and shutdown closes all retained sockets. Frame discovery still runs before each action, so no resource/frame ownership cache is trusted across calls. Actions are never automatically retried. Long-lived observations retain their separate lifecycle.
+
 </details>
 
 ## Configuration and troubleshooting

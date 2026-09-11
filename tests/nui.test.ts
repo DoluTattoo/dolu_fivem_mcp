@@ -31,6 +31,7 @@ async function fakeDebugger() {
     trees: new Map<string, FrameTree>(),
     commands: [] as Command[],
     requests: [] as string[],
+    connections: 0,
     contexts: true,
     delayedContexts: false,
     evaluate: undefined as
@@ -48,6 +49,7 @@ async function fakeDebugger() {
   });
   server.on("upgrade", (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
+      state.connections++;
       const targetId = request.url!.split("/").at(-1)!;
       ws.on("error", () => undefined);
       ws.on("message", (data) => {
@@ -191,6 +193,105 @@ async function fakeDebugger() {
 }
 
 describe("NuiDebugger discovery and evaluation", () => {
+  it("renews deadlines on reuse and never leases the same socket concurrently", async () => {
+    const { adapter, state } = await fakeDebugger();
+    const nui = adapter({ timeoutMs: 500 });
+    state.evaluate = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      return 42;
+    };
+    for (let index = 0; index < 3; index++) {
+      expect(await nui.evaluate("My-Hud_test", "return 42")).toBe(42);
+    }
+    expect(state.connections).toBe(1);
+    expect(
+      await Promise.all([
+        nui.evaluate("My-Hud_test", "return 42"),
+        nui.evaluate("My-Hud_test", "return 42"),
+      ]),
+    ).toEqual([42, 42]);
+    expect(state.connections).toBe(2);
+  });
+  it("expires idle connections and closes retained sockets on shutdown", async () => {
+    const { adapter, state, wss } = await fakeDebugger();
+    const nui = adapter();
+    await nui.frames();
+    const idle = [...wss.clients][0]!;
+    await new Promise<void>((resolve) => idle.once("close", () => resolve()));
+    expect(wss.clients.size).toBe(0);
+    await nui.frames();
+    expect(state.connections).toBe(2);
+    const retained = [...wss.clients][0]!;
+    const closed = new Promise<void>((resolve) =>
+      retained.once("close", () => resolve()),
+    );
+    nui.close();
+    await closed;
+    expect(wss.clients.size).toBe(0);
+  });
+  it("uses a new main-world context after navigation on a retained socket", async () => {
+    const { adapter, state, wss } = await fakeDebugger();
+    const nui = adapter();
+    await nui.evaluate("My-Hud_test", "return 42");
+    state.contexts = false;
+    const socket = [...wss.clients][0]!;
+    socket.send(
+      JSON.stringify({
+        method: "Runtime.executionContextsCleared",
+        params: {},
+      }),
+    );
+    socket.send(
+      JSON.stringify({
+        method: "Runtime.executionContextCreated",
+        params: {
+          context: {
+            id: 101,
+            auxData: { frameId: "resource-frame", isDefault: true },
+          },
+        },
+      }),
+    );
+    expect(await nui.evaluate("My-Hud_test", "return 42")).toEqual({
+      contextId: 101,
+    });
+    expect(state.connections).toBe(1);
+  });
+  it("reuses idle CDP sockets but refreshes frame ownership before each action", async () => {
+    const { adapter, state } = await fakeDebugger();
+    const nui = adapter();
+    state.evaluate = () => 42;
+    expect(await nui.evaluate("My-Hud_test", "return 42")).toBe(42);
+    expect(await nui.evaluate("My-Hud_test", "return 42")).toBe(42);
+    expect(state.connections).toBe(1);
+    expect(state.requests).toHaveLength(2);
+    state.trees.get("root")!.childFrames = [];
+    await expect(nui.evaluate("My-Hud_test", "return 42")).rejects.toThrow(
+      "not found",
+    );
+    expect(
+      state.commands.filter((command) => command.method === "Runtime.evaluate"),
+    ).toHaveLength(2);
+  });
+  it("does not retry a failed CDP action and can reconnect on the next call", async () => {
+    const { adapter, state } = await fakeDebugger();
+    const nui = adapter();
+    state.intercept = (command, socket) => {
+      if (command.method !== "Runtime.evaluate") return false;
+      socket.terminate();
+      return true;
+    };
+    await expect(nui.evaluate("My-Hud_test", "return 42")).rejects.toThrow(
+      "disconnected",
+    );
+    expect(
+      state.commands.filter((command) => command.method === "Runtime.evaluate"),
+    ).toHaveLength(1);
+    state.intercept = undefined;
+    state.evaluate = () => 42;
+    expect(await nui.evaluate("My-Hud_test", "return 42")).toBe(42);
+    expect(state.connections).toBe(2);
+  });
   it("attributes srcdoc and blank children to their owning resource, not external pages", async () => {
     const { adapter, addTarget, state } = await fakeDebugger();
     state.targets = [];

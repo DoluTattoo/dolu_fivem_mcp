@@ -147,7 +147,7 @@ class CdpConnection {
 
   constructor(
     url: string,
-    private readonly deadline: number,
+    private deadline: number,
     private readonly maxBytes: number,
   ) {
     this.socket = new WebSocket(url, {
@@ -249,6 +249,17 @@ class CdpConnection {
     for (const listener of this.contextListeners) listener();
     for (const listener of this.failureListeners) listener(error);
     this.socket.terminate();
+  }
+
+  reuse(deadline: number): boolean {
+    if (
+      this.failure ||
+      this.pending.size ||
+      this.socket.readyState !== WebSocket.OPEN
+    )
+      return false;
+    this.deadline = deadline;
+    return true;
   }
 
   onEvent(listener: (method: string, params: ObjectValue) => void): () => void {
@@ -358,6 +369,13 @@ export class NuiDebugger {
   private readonly endpoint: string;
   private readonly options: NuiDebuggerOptions;
   private readonly connections = new Set<CdpConnection>();
+  private readonly idleConnections = new Map<
+    string,
+    {
+      connection: CdpConnection;
+      dispose: () => void;
+    }
+  >();
   private readonly abortHttp = new Set<() => void>();
   private closed = false;
   private capturingGame = false;
@@ -509,21 +527,45 @@ export class NuiDebugger {
     if (this.closed) throw new Error("NUI debugger is closed");
     if (this.connections.size >= 16)
       throw new Error("Too many active NUI connections");
-    const connection = new CdpConnection(
-      socketUrl,
-      deadline,
-      this.options.maxResultBytes,
-    );
+    const idle = this.idleConnections.get(socketUrl);
+    idle?.dispose();
+    const connection = idle?.connection.reuse(deadline)
+      ? idle.connection
+      : new CdpConnection(socketUrl, deadline, this.options.maxResultBytes);
+    if (idle && idle.connection !== connection) idle.connection.close();
     this.connections.add(connection);
     const abort = () => connection.close();
     signal?.addEventListener("abort", abort, { once: true });
+    let succeeded = false;
     try {
       await connection.ready;
-      return await action(connection);
+      const result = await action(connection);
+      succeeded = true;
+      return result;
     } finally {
       this.connections.delete(connection);
       signal?.removeEventListener("abort", abort);
-      connection.close();
+      if (
+        succeeded &&
+        !this.closed &&
+        !signal?.aborted &&
+        connection.reuse(deadline) &&
+        this.idleConnections.size < 4 &&
+        !this.idleConnections.has(socketUrl)
+      ) {
+        let offFailure = () => {};
+        const dispose = () => {
+          clearTimeout(timer);
+          offFailure();
+          this.idleConnections.delete(socketUrl);
+        };
+        const timer = setTimeout(() => {
+          dispose();
+          connection.close();
+        }, 2000);
+        this.idleConnections.set(socketUrl, { connection, dispose });
+        offFailure = connection.onFailure(dispose);
+      } else connection.close();
     }
   }
 
@@ -1137,5 +1179,9 @@ return {
     for (const abort of this.abortHttp) abort();
     for (const connection of this.connections) connection.close();
     this.connections.clear();
+    for (const idle of [...this.idleConnections.values()]) {
+      idle.dispose();
+      idle.connection.close();
+    }
   }
 }
