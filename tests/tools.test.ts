@@ -128,6 +128,35 @@ describe("complete MCP tool surface", () => {
       result: { contents: [{ text: expect.stringContaining("cooperative") }] },
     });
   });
+  it("filters resource discovery without changing the unfiltered response", async () => {
+    const resources = [
+      { name: "dolu_mcp", state: "started" },
+      { name: "dolu_settings", state: "stopped" },
+      { name: "chat", state: "started" },
+    ];
+    vi.stubGlobal("GetNumResources", () => resources.length);
+    vi.stubGlobal(
+      "GetResourceByFindIndex",
+      (index: number) => resources[index]?.name,
+    );
+    vi.stubGlobal(
+      "GetResourceState",
+      (name: string) => resources.find((entry) => entry.name === name)?.state,
+    );
+    for (const [args, expected] of [
+      [{}, [resources[2], resources[0], resources[1]]],
+      [{ name: "DOLU" }, resources.slice(0, 2)],
+      [{ state: "started" }, [resources[2], resources[0]]],
+      [{ name: "DOLU", state: "started" }, [resources[0]]],
+      [{ name: "absent" }, []],
+    ] as const) {
+      expect(
+        await rpc("tools/call", { name: "list_resources", arguments: args }),
+      ).toMatchObject({
+        result: { isError: false, structuredContent: { result: expected } },
+      });
+    }
+  });
   it("executes JS end-to-end through HTTP and exposes structured output", async () => {
     const response = await rpc("tools/call", {
       name: "execute_server",

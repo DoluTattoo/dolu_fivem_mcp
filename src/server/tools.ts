@@ -103,7 +103,8 @@ export function createTools(
   const server = new McpServer(
     { name: "dolu_fivem_mcp", version: VERSION },
     {
-      instructions: `Local FiveM development resource. Call status first. Read resources and select the correct player.
+      instructions: `Local FiveM development resource. Call status once to establish readiness and select the player; reuse it until a restart, disconnect or readiness error. status already includes players: do not also call list_players unless refreshing them.
+    Discover resources only when needed: use inspect_resource for a known resource or list_resources with name/state filters. Screenshots and snippets do not require a full resource listing. Call the intended tool directly once its target is known; use diagnose for failures, not routine preflight.
 Client/server JavaScript and Lua execution are supported; NUI uses JavaScript through local CEF DevTools.
 No filesystem editing tools: use your editor. ${CONTRACT}`,
     },
@@ -212,10 +213,31 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
   );
   tool(
     "list_resources",
-    "List installed FiveM resources and their current state.",
-    {},
+    "List installed resources and state. Prefer name (case-insensitive substring) and/or state filters to reduce output. Omit filters only for a full inventory.",
+    {
+      name: z.string().min(1).max(128).optional(),
+      state: z
+        .enum([
+          "started",
+          "starting",
+          "stopped",
+          "stopping",
+          "uninitialized",
+          "missing",
+          "unknown",
+        ])
+        .optional(),
+    },
     true,
-    () => game.resources(),
+    async ({ name, state }) => {
+      const resources = await game.resources();
+      const query = name?.toLowerCase();
+      return resources.filter(
+        (entry) =>
+          (query === undefined || entry.name.toLowerCase().includes(query)) &&
+          (state === undefined || entry.state === state),
+      );
+    },
   );
   tool(
     "inspect_resource",
@@ -269,7 +291,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
 
   tool(
     "execute_server",
-    `Execute arbitrary JavaScript or Lua on the FiveM server. ${CONTRACT}`,
+    "Execute server JavaScript (async body) or Lua (chunk) in this resource, not another resource's private locals. Follow the execution contract in server instructions. After Node I/O use ctx.game for natives. Timeout/cancel is cooperative, not rollback; never auto-retry side effects.",
     executionSchema.shape,
     false,
     (args, signal) =>
@@ -277,7 +299,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
   );
   tool(
     "execute_client",
-    `Execute arbitrary JavaScript or Lua on a selected player. Auto-selects only when exactly one authorized client is ready. ${CONTRACT}`,
+    "Execute client JavaScript (async body) or Lua (chunk) in this resource. Auto-selects only one authorized ready player. Follow the execution contract in server instructions; use exports/events for other resources. Timeout/cancel is cooperative, not rollback; never auto-retry side effects.",
     {
       ...executionSchema.shape,
       playerId: player,
@@ -681,7 +703,7 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
           content: {
             type: "text",
             text: `Test FiveM resource ${resource}. Expectations: ${expectations ?? "startup without errors"}.
-Call status and list_resources, record the log cursor, then restart only the target resource.
+Use status if readiness is not already known, inspect_resource for the target, record the log cursor, then restart only the target resource.
 Wait for started, inspect server logs, select an authorized client and exercise its actual behavior.
 For a NUI, inspect the real resource frame, interact and observe results.
 Distinguish dispatched commands from completed operations. Do not infer success from missing errors.
