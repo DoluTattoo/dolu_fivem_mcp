@@ -234,6 +234,8 @@ The MCP resource `fivem://dolu_fivem_mcp/execution-guide` provides execution gui
 
 **Direct HTTP:** Send JSON-RPC POST requests to `/mcp` with `Content-Type: application/json` and `Accept: application/json, text/event-stream`. The transport is stateless; no session token or Authorization header is needed.
 
+**Targeted NUI snapshots:** `nui_snapshot` accepts `selector` (exactly one subtree), `maxElements` (1-150, default 150), and `includeText` (default true). Use `includeText: false` when accessible labels suffice; element names and interactive refs remain available. Missing or ambiguous selectors fail explicitly. `truncated` indicates an incomplete scan. Defaults retain the document-wide snapshot and private input values remain excluded.
+
 </details>
 
 ## Configuration and troubleshooting

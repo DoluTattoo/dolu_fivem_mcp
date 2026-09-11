@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   FRAME_POINT,
   SNAPSHOT,
+  snapshotCode,
+  nuiSnapshotSchema,
   interactionCode,
   nuiInteractionSchema,
   nuiWaitSchema,
@@ -85,6 +87,57 @@ describe("NUI document helpers", () => {
       dom.body.append(new ElementFixture("BUTTON"));
     expect(snapshot(dom).elements).toHaveLength(150);
     expect(dom.run("globalThis.__doluMcpRefs.refs.size")).toBe(150);
+  });
+  it("scopes snapshots to one element and omits text while retaining usable refs", () => {
+    const dom = domFixture();
+    dom.button.id = "snapshot-target";
+    const result = evaluate(
+      dom,
+      snapshotCode({
+        selector: "#snapshot-target",
+        includeText: false,
+        maxElements: 1,
+      }),
+    ) as {
+      text?: string;
+      elements: Array<{ ref: string; text?: string }>;
+      truncated: boolean;
+    };
+    expect(result.text).toBeUndefined();
+    expect(result.elements).toHaveLength(1);
+    expect(result.elements[0]?.text).toBeUndefined();
+    expect(result.truncated).toBe(false);
+    evaluate(
+      dom,
+      interactionCode(
+        nuiInteractionSchema.parse({
+          action: "click",
+          ref: result.elements[0]!.ref,
+        }),
+      ),
+    );
+    expect(dom.button.clicks).toBe(1);
+    expect(() => evaluate(dom, snapshotCode({ selector: "#missing" }))).toThrow(
+      "exactly one",
+    );
+    dom.body.append(new ElementFixture("BUTTON"));
+    expect(() => evaluate(dom, snapshotCode({ selector: "button" }))).toThrow(
+      "exactly one",
+    );
+  });
+  it("bounds custom snapshots and preserves private input redaction", () => {
+    const dom = domFixture();
+    const result = evaluate(dom, snapshotCode({ maxElements: 1 })) as {
+      elements: unknown[];
+      truncated: boolean;
+    };
+    expect(result.elements).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+    expect(JSON.stringify(evaluate(dom, snapshotCode()))).not.toContain(
+      "secret password",
+    );
+    for (const maxElements of [0, 151, 1.5])
+      expect(nuiSnapshotSchema.safeParse({ maxElements }).success).toBe(false);
   });
   it("selects exact enabled options and does not partially mutate on invalid input", () => {
     const dom = domFixture();

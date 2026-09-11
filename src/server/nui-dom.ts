@@ -152,12 +152,28 @@ var point = function (el) {
 };
 `;
 
-export const SNAPSHOT =
-  DOM_HELPERS +
-  `
+export const nuiSnapshotSchema = z.object({
+  selector: z.string().min(1).max(2000).optional(),
+  maxElements: z.number().int().min(1).max(150).default(150),
+  includeText: z.boolean().default(true),
+});
+
+export function snapshotCode(
+  input: z.input<typeof nuiSnapshotSchema> = {},
+): string {
+  const options = nuiSnapshotSchema.parse(input);
+  return (
+    DOM_HELPERS +
+    `var options = ${JSON.stringify(options)};
+var root = document.body || document.documentElement;
+if (options.selector) {
+  var matches = document.querySelectorAll(options.selector);
+  if (matches.length !== 1) throw new Error('Snapshot selector must match exactly one element');
+  root = matches[0];
+}
 var elements = [], visited = 0;
-var walker = document.createTreeWalker(document.body || document.documentElement, 1), node = walker.currentNode;
-while (node && visited++ < 10000 && elements.length < 150) {
+var walker = document.createTreeWalker(root, 1), node = walker.currentNode;
+while (node && visited++ < 10000 && elements.length < options.maxElements) {
   if (node.matches('a,button,input,textarea,select,[role],[tabindex],[contenteditable]')) {
     var ref = undefined;
     for (var entry of state.refs) if (entry[1].el === node) { ref = entry[0]; break; }
@@ -174,15 +190,19 @@ while (node && visited++ < 10000 && elements.length < 150) {
     if (!name && node.labels) name = Array.from(node.labels).slice(0,20).map(safeText).join(' ');
     if (!name) name = safeText(node) || node.getAttribute('alt') || node.getAttribute('title') || '';
     var r = node.getBoundingClientRect();
-    elements.push({ ref:ref, tag:tag, id:node.id.slice(0,120), role:role.slice(0,80), type:type.slice(0,80), name:clean(name).slice(0,160), text:safeText(node).slice(0,160),
+    elements.push({ ref:ref, tag:tag, id:node.id.slice(0,120), role:role.slice(0,80), type:type.slice(0,80), name:clean(name).slice(0,160), text:options.includeText ? safeText(node).slice(0,160) : undefined,
       visible:visible(node), disabled:disabled(node), checked: typeof node.checked === 'boolean' ? node.checked : node.getAttribute('aria-checked'),
       rect:{ x:r.x,y:r.y,width:r.width,height:r.height } });
   }
   node = walker.nextNode();
 }
-var text = safeText(document.body || document.documentElement);
-return { title:clean(document.title).slice(0,200), text:text, elements:elements, truncated:!!node || text.length >= 12000, generation:state.generation, referenceTtlMs:120000 };
-`;
+var text = options.includeText ? safeText(root) : undefined;
+return { title:clean(document.title).slice(0,200), text:text, elements:elements, truncated:!!node || (text !== undefined && text.length >= 12000), generation:state.generation, referenceTtlMs:120000 };
+`
+  );
+}
+
+export const SNAPSHOT = snapshotCode();
 
 export function interactionCode(
   args: z.output<typeof nuiInteractionSchema>,

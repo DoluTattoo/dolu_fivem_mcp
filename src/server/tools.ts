@@ -9,6 +9,7 @@ import {
 } from "../shared/protocol";
 import type { GameService } from "./game";
 import type { Job } from "./jobs";
+import { nuiSnapshotSchema } from "./nui-dom";
 import {
   gameScreenshotOptionsSchema,
   type NuiDebugger,
@@ -468,12 +469,12 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
   );
   tool(
     "nui_snapshot",
-    "Read a bounded DOM summary and interactive elements of a resource's NUI. Input values are omitted; rendered page text can still be sensitive.",
-    nuiShape,
+    "Read NUI elements and stable refs. Prefer selector for one subtree, maxElements for a small result, includeText=false when labels suffice. Defaults preserve a full bounded snapshot. Input values are omitted; rendered text can still be sensitive.",
+    { ...nuiShape, ...nuiSnapshotSchema.shape },
     true,
-    async ({ resource, playerId, frameId }) => {
+    async ({ resource, playerId, frameId, ...options }) => {
       await game.assertLocalNui(playerId);
-      return nui.snapshot(resource, frameId);
+      return nui.snapshot(resource, frameId, options);
     },
   );
   tool(

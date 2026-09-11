@@ -4,7 +4,8 @@ import WebSocket from "ws";
 import { z } from "zod";
 import {
   FRAME_POINT,
-  SNAPSHOT,
+  snapshotCode,
+  nuiSnapshotSchema,
   interactionCode,
   prepareCode,
   nuiInteractionSchema,
@@ -755,8 +756,16 @@ return { width: innerWidth, height: innerHeight };`,
     }
   }
 
-  async snapshot(resource: string, frameId?: string): Promise<unknown> {
-    const result = await this.evaluate(resource, SNAPSHOT, frameId);
+  async snapshot(
+    resource: string,
+    frameId?: string,
+    options: z.input<typeof nuiSnapshotSchema> = {},
+  ): Promise<unknown> {
+    const result = await this.evaluate(
+      resource,
+      snapshotCode(options),
+      frameId,
+    );
     for (const element of Array.isArray(object(result).elements)
       ? (object(result).elements as unknown[])
       : []) {

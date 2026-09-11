@@ -157,6 +157,33 @@ describe("complete MCP tool surface", () => {
       });
     }
   });
+  it("routes bounded snapshot options and rejects invalid limits before CEF", async () => {
+    vi.spyOn(game, "assertLocalNui").mockResolvedValue(1);
+    expect(
+      await rpc("tools/call", {
+        name: "nui_snapshot",
+        arguments: {
+          resource: "example",
+          selector: "#menu",
+          maxElements: 5,
+          includeText: false,
+        },
+      }),
+    ).toMatchObject({ result: { isError: false } });
+    expect(nui.snapshot).toHaveBeenCalledWith("example", undefined, {
+      selector: "#menu",
+      maxElements: 5,
+      includeText: false,
+    });
+    nui.snapshot.mockClear();
+    expect(
+      await rpc("tools/call", {
+        name: "nui_snapshot",
+        arguments: { resource: "example", maxElements: 151 },
+      }),
+    ).toMatchObject({ result: { isError: true } });
+    expect(nui.snapshot).not.toHaveBeenCalled();
+  });
   it("executes JS end-to-end through HTTP and exposes structured output", async () => {
     const response = await rpc("tools/call", {
       name: "execute_server",
