@@ -153,6 +153,64 @@ describe("JavaScript executor", () => {
 });
 
 describe("execution lifecycle", () => {
+  it("waits for completion without polling and cleans up its wait timer", async () => {
+    vi.useFakeTimers();
+    const jobs = new Jobs();
+    const { job } = jobs.start("server", input, undefined, vi.fn(), vi.fn());
+    const waiting = jobs.wait(job.id, 500);
+    jobs.finish(job.id, { ok: true, values: [42], logs: [], durationMs: 1 });
+    expect(await waiting).toMatchObject({
+      state: "completed",
+      outcome: { values: [42] },
+    });
+    expect(await jobs.wait(job.id, 500)).toBe(job);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("bounds waits without cancelling the execution", async () => {
+    vi.useFakeTimers();
+    const jobs = new Jobs();
+    const cancel = vi.fn();
+    const { job } = jobs.start("server", input, undefined, vi.fn(), cancel);
+    expect(await jobs.wait(job.id, 0)).toBe(job);
+    const waiting = jobs.wait(job.id, 100);
+    await vi.advanceTimersByTimeAsync(100);
+    expect((await waiting).state).toBe("running");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    jobs.close();
+  });
+  it("aborts only the waiter and removes its listener", async () => {
+    vi.useFakeTimers();
+    const jobs = new Jobs();
+    const cancel = vi.fn();
+    const { job } = jobs.start("server", input, undefined, vi.fn(), cancel);
+    const controller = new AbortController();
+    const remove = vi.spyOn(controller.signal, "removeEventListener");
+    const waiting = jobs.wait(job.id, 500, controller.signal);
+    controller.abort(new Error("stop waiting"));
+    await expect(waiting).rejects.toThrow("stop waiting");
+    await expect(jobs.wait(job.id, 500, controller.signal)).rejects.toThrow(
+      "stop waiting",
+    );
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(job.state).toBe("running");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(1);
+    jobs.close();
+    await expect(jobs.wait("unknown", 500)).rejects.toThrow("Unknown");
+  });
+  it.each(["cancelled", "timed_out", "disconnected"] as const)(
+    "wakes waiters when an execution becomes %s",
+    async (state) => {
+      vi.useFakeTimers();
+      const jobs = new Jobs();
+      const { job } = jobs.start("client", input, 7, vi.fn(), vi.fn());
+      const waiting = jobs.wait(job.id, 500);
+      jobs.cancel(job.id, state);
+      expect((await waiting).state).toBe(state);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
   it("binds results to the intended player and ignores late completion", async () => {
     const jobs = new Jobs();
     const cancel = vi.fn();

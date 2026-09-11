@@ -174,6 +174,148 @@ describe("complete MCP tool surface", () => {
       },
     });
   });
+  it("waits for an existing job through HTTP without launching it again", async () => {
+    const { job } = game.jobs.start(
+      "server",
+      {
+        language: "javascript",
+        code: "return 42",
+        timeoutMs: 1000,
+        wait: false,
+      },
+      undefined,
+      vi.fn(),
+      vi.fn(),
+    );
+    const originalWait = game.jobs.wait.bind(game.jobs);
+    const wait = vi
+      .spyOn(game.jobs, "wait")
+      .mockImplementation((id, waitMs, signal) => {
+        const pending = originalWait(id, waitMs, signal);
+        game.jobs.finish(id, {
+          ok: true,
+          values: [42],
+          logs: [],
+          durationMs: 1,
+        });
+        return pending;
+      });
+    expect(
+      await rpc("tools/call", {
+        name: "get_execution",
+        arguments: { id: job.id, waitMs: 500, compact: true },
+      }),
+    ).toMatchObject({
+      result: {
+        isError: false,
+        structuredContent: {
+          result: { id: job.id, state: "completed", outcome: { values: [42] } },
+        },
+      },
+    });
+    expect(wait).toHaveBeenCalledWith(job.id, 500, expect.any(AbortSignal));
+    expect(game.jobs.list()).toHaveLength(1);
+  });
+  it("compacts execution logs without losing values, errors or stored details", async () => {
+    const { job } = game.jobs.start(
+      "server",
+      {
+        language: "javascript",
+        code: "return 42",
+        timeoutMs: 1000,
+        wait: false,
+      },
+      undefined,
+      vi.fn(),
+      vi.fn(),
+    );
+    const logs = Array.from({ length: 100 }, () => ({
+      level: "info" as const,
+      message: "x".repeat(1024),
+    }));
+    game.jobs.finish(job.id, {
+      ok: false,
+      values: [42],
+      logs,
+      durationMs: 1,
+      error: "expected failure",
+    });
+    const full = await rpc("tools/call", {
+      name: "get_execution",
+      arguments: { id: job.id },
+    });
+    const compact = await rpc("tools/call", {
+      name: "get_execution",
+      arguments: { id: job.id, compact: true },
+    });
+    expect(compact).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: {
+          result: {
+            state: "failed",
+            logCount: 100,
+            outcome: { values: [42], error: "expected failure" },
+          },
+        },
+      },
+    });
+    expect(compact.result.structuredContent.result).not.toHaveProperty("logs");
+    expect(compact.result.structuredContent.result.outcome).not.toHaveProperty(
+      "logs",
+    );
+    expect(full.result.structuredContent.result.logs).toHaveLength(100);
+    expect(JSON.stringify(compact).length).toBeLessThan(
+      JSON.stringify(full).length * 0.05,
+    );
+    expect(game.jobs.get(job.id).outcome?.logs).toHaveLength(100);
+    const list = await rpc("tools/call", {
+      name: "list_executions",
+      arguments: { compact: true },
+    });
+    expect(list.result.structuredContent.result[0]).toMatchObject({
+      id: job.id,
+      logCount: 100,
+      ok: false,
+    });
+    expect(list.result.structuredContent.result[0]).not.toHaveProperty("logs");
+  });
+  it.each(["execute_server", "execute_client"])(
+    "supports compact output from %s",
+    async (name) => {
+      const job = {
+        id: "12345678-1234-4123-8123-123456789012",
+        target: "server" as const,
+        language: "javascript" as const,
+        state: "completed" as const,
+        startedAt: new Date().toISOString(),
+        logs: [{ level: "info" as const, message: "hello" }],
+        outcome: {
+          ok: true,
+          values: [42],
+          logs: [{ level: "info" as const, message: "hello" }],
+          durationMs: 1,
+        },
+      };
+      vi.spyOn(game, "execute").mockResolvedValue(job);
+      const response = await rpc("tools/call", {
+        name,
+        arguments: {
+          language: "javascript",
+          code: "return 42",
+          compact: true,
+        },
+      });
+      expect(response.result.structuredContent.result).toMatchObject({
+        logCount: 1,
+        outcome: { values: [42] },
+      });
+      expect(response.result.structuredContent.result).not.toHaveProperty(
+        "logs",
+      );
+      expect(job.logs).toHaveLength(1);
+    },
+  );
   it("persists scenario reports across stateless requests", async () => {
     const response = await rpc("tools/call", {
       name: "run_scenario",

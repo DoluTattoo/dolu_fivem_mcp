@@ -8,6 +8,7 @@ import {
   executionSchema,
 } from "../shared/protocol";
 import type { GameService } from "./game";
+import type { Job } from "./jobs";
 import {
   gameScreenshotOptionsSchema,
   type NuiDebugger,
@@ -29,6 +30,12 @@ import {
 const player = z.number().int().positive().optional();
 const resource = z.string().min(1).max(128);
 const timeout = z.number().int().min(100).max(60_000).default(10_000);
+const compact = z
+  .boolean()
+  .default(false)
+  .describe(
+    "Omit captured logs from this response; keep values, errors and logCount. Full logs remain available via get_execution without compact.",
+  );
 const readOnly = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -60,6 +67,13 @@ function failedJob(value: unknown): boolean {
     )
   );
 }
+function executionResult(job: Job, compact: boolean) {
+  if (!compact) return job;
+  const { logs, outcome, ...metadata } = job;
+  if (!outcome) return { ...metadata, logCount: logs.length, outcome };
+  const { logs: outcomeLogs, ...result } = outcome;
+  return { ...metadata, logCount: outcomeLogs.length, outcome: result };
+}
 const CONTRACT = `Trusted local development only. Runs in dolu_fivem_mcp's own resource, not other resources' private locals.
 Use native functions, exports or events to interact with other resources.
 JavaScript: async body with return, console.log, ctx.log, await ctx.sleep(ms), ctx.alive(), ctx.onCleanup(fn).
@@ -67,7 +81,8 @@ After Node I/O, call await ctx.game(() => nativeCall()) to return to the game th
 Lua: chunk with return, print, ctx.log, ctx.sleep(ms), ctx.alive(), ctx.onCleanup(fn); Wait is supported.
 Cleanups run when the snippet exits. Raw timers/threads/entities are not automatically undone.
 Timeout/cancel is cooperative and does NOT guarantee code interruption or rollback.
-Use wait=false for long operations, then get_execution/cancel_execution. Never automatically retry side effects.`;
+Use compact=true for executions when only returned values are needed; retrieve full logs only to investigate.
+Use wait=false for long operations, then get_execution with waitMs=10000 instead of repeated polls. A running response means keep waiting, not re-execute. cancel_execution explicitly cancels work. Never automatically retry side effects.`;
 
 export function createTools(
   game: GameService,
@@ -292,10 +307,18 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
   tool(
     "execute_server",
     "Execute server JavaScript (async body) or Lua (chunk) in this resource, not another resource's private locals. Follow the execution contract in server instructions. After Node I/O use ctx.game for natives. Timeout/cancel is cooperative, not rollback; never auto-retry side effects.",
-    executionSchema.shape,
+    { ...executionSchema.shape, compact },
     false,
-    (args, signal) =>
-      game.execute("server", executionSchema.parse(args), undefined, signal),
+    async (args, signal) =>
+      executionResult(
+        await game.execute(
+          "server",
+          executionSchema.parse(args),
+          undefined,
+          signal,
+        ),
+        args.compact,
+      ),
   );
   tool(
     "execute_client",
@@ -303,34 +326,42 @@ No filesystem editing tools: use your editor. ${CONTRACT}`,
     {
       ...executionSchema.shape,
       playerId: player,
+      compact,
     },
     false,
-    (args, signal) =>
-      game.execute(
-        "client",
-        executionSchema.parse(args),
-        args.playerId,
-        signal,
+    async (args, signal) =>
+      executionResult(
+        await game.execute(
+          "client",
+          executionSchema.parse(args),
+          args.playerId,
+          signal,
+        ),
+        args.compact,
       ),
   );
   tool(
     "list_executions",
-    "Recent execution metadata and results (bounded in-memory history).",
-    {},
+    "Recent execution metadata (bounded history). Prefer compact=true to omit captured logs; use get_execution for a result.",
+    { compact },
     true,
-    () =>
+    ({ compact }) =>
       game.jobs
         .list()
+        .map((job) => executionResult(job, compact))
         .map(({ outcome, ...job }) => ({ ...job, ok: outcome?.ok })),
   );
   tool(
     "get_execution",
-    "Get a running or completed execution and its captured result. History is lost on resource restart.",
+    "Get execution state and result. Prefer waitMs=10000 for running jobs to avoid polling, compact=true unless logs are needed. Wait expiry returns current state; aborting this read does not cancel work. History is lost on restart.",
     {
       id: z.string().uuid(),
+      waitMs: z.number().int().min(0).max(60_000).default(0),
+      compact,
     },
     true,
-    ({ id }) => game.jobs.get(id),
+    async ({ id, waitMs, compact }, signal) =>
+      executionResult(await game.jobs.wait(id, waitMs, signal), compact),
   );
   tool(
     "cancel_execution",

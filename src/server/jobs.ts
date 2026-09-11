@@ -103,6 +103,25 @@ export class Jobs {
     if (!job) throw new Error("Unknown or expired execution id");
     return job;
   }
+  async wait(id: string, waitMs: number, signal?: AbortSignal): Promise<Job> {
+    signal?.throwIfAborted();
+    const job = this.get(id);
+    const pending = this.pending.get(id);
+    if (!pending || waitMs === 0) return job;
+    let stopTimer = () => {};
+    let abort = () => {};
+    try {
+      return await new Promise<Job>((resolve, reject) => {
+        stopTimer = scheduleTimeout(() => resolve(job), waitMs);
+        abort = () => reject(signal?.reason);
+        signal?.addEventListener("abort", abort, { once: true });
+        void pending.done.then(resolve);
+      });
+    } finally {
+      stopTimer();
+      signal?.removeEventListener("abort", abort);
+    }
+  }
   list(): Job[] {
     return [...this.records.values()].reverse();
   }
